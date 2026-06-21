@@ -311,6 +311,65 @@ section[data-testid="stSidebar"] * {{
 
 .stAlert {{ border-radius: 6px !important; font-size: .85rem !important; }}
 hr {{ border-color: {LINE} !important; }}
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE — Tablet & Mobile
+   ═══════════════════════════════════════════ */
+
+/* ── Tablet ≤1024px ── */
+@media (max-width: 1024px) {{
+  .block-container {{ max-width: 100% !important; padding: 0 !important; }}
+  .topbar {{ padding: 12px 20px 10px; }}
+  .steps  {{ padding: 0 20px 12px; }}
+}}
+
+/* ── Phone (<640px): stack all columns ── */
+@media (max-width: 639px) {{
+  [data-testid="stHorizontalBlock"] {{
+    flex-wrap: wrap !important;
+    gap: 0 !important;
+  }}
+  [data-testid="column"] {{
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    width: 100% !important;
+  }}
+  /* topbar */
+  .topbar {{ padding: 10px 14px 8px; margin-bottom: 14px; }}
+  .topbar-title {{ font-size: 1rem !important; }}
+  .topbar-sub {{ font-size: .72rem !important; }}
+  /* steps: hide text, show only numbers */
+  .steps {{ padding: 0 14px 10px; gap: 0; overflow-x: auto; }}
+  .st-step {{ font-size: 0 !important; gap: 4px !important; flex: unset; }}
+  .st-step .st-num {{ font-size: .7rem !important; }}
+  .st-line {{ width: 18px !important; }}
+  /* bigger buttons for thumb */
+  .stButton > button {{
+    min-height: 48px !important;
+    font-size: 1rem !important;
+    padding: .6rem .9rem !important;
+    width: 100%;
+  }}
+  /* weather grid full-width cells */
+  .wx-grid {{ grid-template-columns: 1fr 1fr !important; gap: 6px !important; }}
+  .wx-value {{ font-size: .95rem !important; }}
+  /* stat row */
+  .stat-item .val {{ font-size: 1.55rem !important; }}
+  /* expander touch area */
+  [data-testid="stExpander"] summary {{ padding: 13px 14px !important; min-height: 48px; }}
+  /* map padding */
+  [data-testid="stPlotlyChart"] {{ margin: 0 -4px; }}
+}}
+
+/* ── Tablet only (640–1023px): 2-col max ── */
+@media (min-width: 640px) and (max-width: 1023px) {{
+  [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; }}
+  [data-testid="column"] {{
+    flex: 1 1 calc(50% - 10px) !important;
+    min-width: calc(50% - 10px) !important;
+  }}
+  .topbar-title {{ font-size: 1.12rem !important; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -770,7 +829,7 @@ with outer:
     st.session_state.infected = {i for i in st.session_state.infected if i < N}
 
     # ── two-column main ───────────────────────────────────────────────────
-    left, right = st.columns([3, 2], gap="large")
+    left, right = st.columns([3, 2], gap="medium")
 
     # ════════════════════════════════
     # ซ้าย — step 2
