@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 import orchard_core as core
 
@@ -39,13 +39,18 @@ class WeatherReq(BaseModel):
 
 @app.post("/api/weather")
 async def get_weather(req: WeatherReq):
-    if req.province not in core.THAI_LOCATIONS:
-        raise HTTPException(404, "ไม่พบจังหวัด")
-    lat, lon = core.THAI_LOCATIONS[req.province]
-    result = core.fetch_live_weather(lat, lon)
-    if result is None:
-        raise HTTPException(503, "ดึงข้อมูลอากาศไม่สำเร็จ")
-    return result
+    try:
+        if req.province not in core.THAI_LOCATIONS:
+            raise HTTPException(404, "ไม่พบจังหวัด")
+        lat, lon = core.THAI_LOCATIONS[req.province]
+        result = core.fetch_live_weather(lat, lon)
+        if result is None:
+            raise HTTPException(503, "ดึงข้อมูลอากาศไม่สำเร็จ")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail=f"{type(e).__name__}: {e}")
 
 
 class OrchardReq(BaseModel):
@@ -57,13 +62,16 @@ class OrchardReq(BaseModel):
 
 @app.post("/api/orchard")
 async def build_orchard(req: OrchardReq):
-    positions, grid_index = core.build_orchard_layout(
-        req.rows, req.cols, req.row_spacing, req.tree_spacing
-    )
-    return {
-        "positions": positions.tolist(),
-        "grid_index": [[r, c] for r, c in grid_index],
-    }
+    try:
+        positions, grid_index = core.build_orchard_layout(
+            req.rows, req.cols, req.row_spacing, req.tree_spacing
+        )
+        return {
+            "positions": positions.tolist(),
+            "grid_index": [[r, c] for r, c in grid_index],
+        }
+    except Exception as e:
+        raise HTTPException(500, detail=f"{type(e).__name__}: {e}")
 
 
 class PredictReq(BaseModel):
@@ -77,9 +85,8 @@ class PredictReq(BaseModel):
     rainfall: float = 1.0
     temperature: float = 28.0
     wind: float = 1.0
-    age_years: int = 6
-    health: float = 0.75
     horizon: int = 7
+    variety: Optional[str] = "NamDokMai"
 
 
 @app.post("/api/predict")
@@ -90,24 +97,27 @@ async def run_predict(req: PredictReq):
         positions, grid_index = core.build_orchard_layout(
             req.rows, req.cols, req.row_spacing, req.tree_spacing
         )
-        N = req.rows * req.cols
+        N = len(positions)
         spacing = min(req.row_spacing, req.tree_spacing)
 
         scenario = core.match_weather_to_scenario(
             req.humidity, req.rainfall, req.temperature, req.wind
         )
-        horizons = core.list_available_horizons(scenario)
-        use_h = req.horizon if req.horizon in horizons else (horizons[0] if horizons else None)
-        if use_h is None:
-            raise HTTPException(
-                500,
-                f"ไม่พบโมเดล — scenario={scenario} horizons={horizons} ROOT={core.ROOT}"
-            )
 
         ei, ew = core.build_graph(positions, spacing)
-        feats  = core.synthesize_features(N, req.infected, req.severity, req.age_years, req.health)
-        risk   = core.predict(feats, ei, ew, scenario, use_h)
-        risk   = np.clip(risk, 0.0, 1.0)
+
+        # ใช้ Spatial SEIR simulation โดยตรง (ตรงกับ methodology ของเปเปอร์)
+        risk = core.seir_forecast(
+            positions   = positions,
+            edge_index  = ei,
+            edge_weight = ew,
+            infected    = req.infected,
+            severity    = req.severity,
+            scenario    = scenario,
+            horizon_days= req.horizon,
+            variety     = req.variety or "NamDokMai",
+        )
+        risk = np.clip(risk, 0.0, 1.0)
 
         avg  = float(risk.mean())
         high = int((risk >= 0.66).sum())
@@ -124,15 +134,15 @@ async def run_predict(req: PredictReq):
             })
 
         return {
-            "risk":         risk.tolist(),
-            "avg_risk":     avg,
-            "high":         high,
-            "mid":          mid,
-            "low":          low,
-            "scenario":     scenario,
-            "scenario_th":  core.SCENARIO_LABELS_TH.get(scenario, scenario),
-            "horizon":      use_h,
-            "csv_rows":     csv_rows,
+            "risk":        risk.tolist(),
+            "avg_risk":    avg,
+            "high":        high,
+            "mid":         mid,
+            "low":         low,
+            "scenario":    scenario,
+            "scenario_th": core.SCENARIO_LABELS_TH.get(scenario, scenario),
+            "horizon":     req.horizon,
+            "csv_rows":    csv_rows,
         }
 
     except HTTPException:

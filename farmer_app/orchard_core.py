@@ -242,6 +242,95 @@ def predict(features: np.ndarray,
 
 
 # ──────────────────────────────────────────────────────────
+# 3b. SEIR FORWARD SIMULATION  (ใช้แทน GNN สำหรับ farmer app)
+#     ตรงกับ methodology ในเปเปอร์ — โมเดลถูก train เพื่อ predict
+#     output ของ SEIR นี้แหละ ดังนั้น run SEIR โดยตรงบน graph
+#     ของเกษตรกรให้ผลที่ถูกต้องกว่าการใช้ GNN extrapolate ออกนอก
+#     distribution ที่ train มา
+# ──────────────────────────────────────────────────────────
+
+# SEIR parameters (ตรงกับ train_scenario_models.py)
+_BETA_BASE = 0.35    # baseline infection rate (Arauz 2000)
+_SIGMA     = 0.25    # incubation rate   (latent period ~4 days)
+_GAMMA     = 0.067   # recovery rate     (infectious period ~15 days)
+
+# spread_multiplier ต่อ scenario  (ค่าจาก SCENARIOS dict ใน train_scenario_models.py)
+# HOT_HUMID/DROUGHT/COLD_DRY/NORMAL ใช้ hardcoded override
+# HEAVY_RAIN/WINDY ใช้ computed value จาก Table 2 ในเปเปอร์
+_SPREAD_MULT = {
+    "HEAVY_RAIN": 1.450,
+    "HOT_HUMID":  2.2,
+    "WINDY":      1.015,
+    "NORMAL":     1.0,
+    "DROUGHT":    0.6,
+    "COLD_DRY":   0.4,
+}
+
+
+def seir_forecast(positions: np.ndarray,
+                  edge_index: torch.Tensor,
+                  edge_weight: torch.Tensor,
+                  infected,
+                  severity: float,
+                  scenario: str,
+                  horizon_days: int,
+                  variety: str = "NamDokMai") -> np.ndarray:
+    """
+    Run Spatial SEIR simulation forward from the farmer's current observation.
+
+    ใช้ graph ที่ build_graph() สร้างมา → ทำงานกับ orchard ขนาดใดก็ได้
+    Returns (N,) infection level I(t+horizon_days) ∈ [0, 1]
+
+    Interpretation:
+      0.00–0.33 : ต่ำ — โรคยังไม่แพร่มาถึง
+      0.33–0.66 : ปานกลาง — เริ่มได้รับเชื้อ เฝ้าระวัง
+      0.66–1.00 : สูง — ติดเชื้อหนัก ต้องจัดการด่วน
+    """
+    N = len(positions)
+
+    ei = edge_index.numpy()
+    ew = edge_weight.numpy()
+
+    # ตัด self-loops ออก (build_graph ใส่ไว้สำหรับ GNN เท่านั้น)
+    mask = ei[0] != ei[1]
+    rows, cols, data = ei[0][mask], ei[1][mask], ew[mask]
+
+    # Adjacency matrix แบบ dense (N ≤ 3,600 ก็โอเค)
+    adj = np.zeros((N, N), dtype=np.float32)
+    adj[rows, cols] = data
+
+    # beta_eff = beta_base × spread_multiplier × (1 − resistance)
+    sm       = _SPREAD_MULT.get(scenario, 1.0)
+    resist   = RESISTANCE_MAP.get(variety, 0.3)
+    eff_beta = _BETA_BASE * sm * (1.0 - resist)
+
+    # กำหนด state SEIR เริ่มต้น
+    S = np.ones(N,  dtype=np.float32)
+    E = np.zeros(N, dtype=np.float32)
+    I = np.zeros(N, dtype=np.float32)
+    R = np.zeros(N, dtype=np.float32)
+
+    for idx in list(infected):
+        sev       = float(np.clip(severity, 0.0, 1.0))
+        I[idx]    = sev
+        S[idx]    = max(0.0, 1.0 - sev)
+
+    # Simulate forward horizon_days steps
+    for _ in range(int(horizon_days)):
+        inf_force = adj @ I                              # (N,)
+        new_e     = np.minimum(eff_beta * S * inf_force, S)
+        new_i     = _SIGMA * E
+        new_r     = _GAMMA * I
+
+        S = np.clip(S - new_e,          0.0, 1.0)
+        E = np.clip(E + new_e - new_i,  0.0, 1.0)
+        I = np.clip(I + new_i - new_r,  0.0, 1.0)
+        R = np.clip(R + new_r,          0.0, 1.0)
+
+    return I
+
+
+# ──────────────────────────────────────────────────────────
 # 4. LIVE WEATHER
 #    หลัก : METAR จาก aviationweather.gov (NWS/NOAA)
 #            → สถานีตรวจวัดจริง อุณหภูมิ / ความชื้น / ลม

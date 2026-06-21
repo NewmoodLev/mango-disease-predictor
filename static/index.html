@@ -511,9 +511,8 @@ async function runPredict(){
     rainfall:+document.getElementById('sl-rain').value,
     temperature:+document.getElementById('sl-temp').value,
     wind:+document.getElementById('sl-wind').value,
-    age_years:+document.getElementById('age_years').value,
-    health:+document.getElementById('health').value,
     horizon:+document.querySelector('input[name=horizon]:checked').value,
+    variety:document.getElementById('variety').value,
   };
   document.getElementById('btn-predict').disabled=true;
   document.getElementById('predict-loading').classList.remove('hidden');
