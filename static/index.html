@@ -521,7 +521,11 @@ async function runPredict(){
   const r=await fetch('/api/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   document.getElementById('btn-predict').disabled=false;
   document.getElementById('predict-loading').classList.add('hidden');
-  if(!r.ok){const e=await r.json();showToast(e.detail||'พยากรณ์ไม่สำเร็จ');return;}
+  if(!r.ok){
+    let msg='พยากรณ์ไม่สำเร็จ ('+r.status+')';
+    try{const e=await r.json();msg=e.detail||msg;}catch{}
+    showToast(msg);console.error(msg);return;
+  }
   const d=await r.json();
   lastResult=d;
   showResults(d);
