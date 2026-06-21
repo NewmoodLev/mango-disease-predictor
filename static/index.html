@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>พยากรณ์โรคในสวนมะม่วง</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans Thai',sans-serif;background:#F5F8F6;color:#1A1A1A;font-size:15px}
+
+/* ── topbar ── */
+.topbar{background:#1B3A2A;padding:14px 24px 12px;position:sticky;top:0;z-index:100}
+.topbar h1{font-size:1.1rem;font-weight:700;color:#fff;letter-spacing:-.2px}
+.topbar p{font-size:.75rem;color:rgba(255,255,255,.55);margin-top:2px}
+
+/* ── steps ── */
+.steps{display:flex;align-items:center;padding:10px 24px;border-bottom:1px solid #D4E2DA;background:#fff;overflow-x:auto;gap:0}
+.step{display:flex;align-items:center;gap:7px;font-size:.78rem;font-weight:600;color:#B0BEC5;white-space:nowrap;flex:1}
+.step.done{color:#4A8C64}.step.active{color:#2D5A40}
+.step-num{width:24px;height:24px;border-radius:50%;border:2px solid #CFD8DC;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;background:#fff;flex-shrink:0}
+.step.done .step-num{background:#4A8C64;border-color:#4A8C64;color:#fff}
+.step.active .step-num{background:#2D5A40;border-color:#2D5A40;color:#fff}
+.step-line{width:24px;height:1px;background:#CFD8DC;flex-shrink:0}
+.step-line.done{background:#4A8C64}
+
+/* ── layout ── */
+.container{max-width:1100px;margin:0 auto;padding:16px 16px 40px}
+.section-title{font-size:.82rem;font-weight:700;color:#2D5A40;text-transform:uppercase;letter-spacing:.6px;padding-bottom:8px;border-bottom:2px solid #2D5A40;margin-bottom:14px}
+.card{background:#fff;border:1px solid #D4E2DA;border-radius:8px;padding:16px;margin-bottom:14px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.grid-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
+.main-cols{display:grid;grid-template-columns:3fr 2fr;gap:16px;align-items:start}
+
+/* ── form controls ── */
+label{display:block;font-size:.8rem;font-weight:600;color:#1A1A1A;margin-bottom:4px}
+input[type=number],input[type=text],select{
+  width:100%;padding:8px 10px;border:1px solid #D4E2DA;border-radius:6px;
+  font-family:inherit;font-size:.88rem;background:#fff;color:#1A1A1A;outline:none;
+}
+input:focus,select:focus{border-color:#4A8C64}
+input[type=range]{width:100%;accent-color:#2D5A40;cursor:pointer;height:4px;margin:6px 0}
+.range-row{display:flex;align-items:center;gap:10px}
+.range-val{font-size:.88rem;font-weight:700;color:#2D5A40;min-width:46px;text-align:right}
+
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:9px 16px;border-radius:6px;font-family:inherit;font-size:.88rem;
+  font-weight:600;cursor:pointer;border:1px solid #D4E2DA;background:#fff;color:#1A1A1A;
+  transition:border-color .12s,background .12s;width:100%;min-height:44px}
+.btn:hover{border-color:#4A8C64;background:#EAF4EE;color:#2D5A40}
+.btn-primary{background:#2D5A40;color:#fff;border-color:#2D5A40;font-size:.95rem;min-height:48px}
+.btn-primary:hover{background:#1B3A2A;border-color:#1B3A2A}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+
+/* ── info boxes ── */
+.wx-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.wx-item{background:#F5F8F6;border:1px solid #D4E2DA;border-radius:6px;padding:9px 12px}
+.wx-label{font-size:.7rem;color:#5A6672;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.wx-val{font-size:1.05rem;font-weight:700;color:#1A1A1A;margin-top:2px}
+.badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:.72rem;font-weight:700}
+.badge-green{background:#EAF4EE;color:#2D5A40;border:1px solid #B2DFCF}
+.badge-orange{background:#FFF3E0;color:#E65100;border:1px solid #FFCC80}
+
+.sev-desc{background:#EAF4EE;border:1px solid #B2DFCF;border-radius:6px;padding:9px 12px;font-size:.82rem;color:#1A1A1A;margin-top:6px}
+
+.stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.stat-box{background:#fff;border:1px solid #D4E2DA;border-radius:8px;padding:12px;text-align:center}
+.stat-box .val{font-size:2rem;font-weight:700;line-height:1}
+.stat-box .lbl{font-size:.68rem;color:#5A6672;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:.3px}
+.risk-pill{display:inline-block;padding:3px 12px;border-radius:4px;font-size:.82rem;font-weight:700;color:#fff}
+
+.rec{border-left:3px solid #C62828;padding:12px 14px;background:#fff;border-radius:0 6px 6px 0;margin-top:12px}
+.rec.ok{border-left-color:#2E7D32}
+.rec-title{font-size:.88rem;font-weight:700;color:#1A1A1A;margin-bottom:6px}
+.rec-list{list-style:none}
+.rec-list li{font-size:.82rem;color:#5A6672;padding:2px 0;display:flex;gap:7px}
+.rec-list li::before{content:"–";color:#D4E2DA}
+
+.sc-tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:.78rem;font-weight:700;background:#EAF4EE;color:#2D5A40;border:1px solid #B2DFCF;margin-left:6px}
+
+.hidden{display:none!important}
+#infected-count{font-weight:700;color:#2D5A40}
+.caption{font-size:.78rem;color:#5A6672;margin-bottom:8px}
+.legend{display:flex;gap:14px;font-size:.78rem;font-weight:600;color:#5A6672;padding:5px 0;margin-bottom:4px}
+.ldot{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:4px}
+.divider{border:none;border-top:1px solid #D4E2DA;margin:14px 0}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #B2DFCF;border-top-color:#2D5A40;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:20px;right:20px;background:#1B3A2A;color:#fff;padding:10px 18px;border-radius:8px;font-size:.85rem;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* gauge */
+.gauge-wrap{position:relative;text-align:center;padding:8px 0}
+.gauge-label{font-size:.72rem;color:#5A6672;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+
+/* ── responsive ── */
+@media(max-width:700px){
+  .main-cols{grid-template-columns:1fr}
+  .grid-4{grid-template-columns:1fr 1fr}
+  .grid-3{grid-template-columns:1fr 1fr}
+  .topbar h1{font-size:.95rem}
+  .stat-box .val{font-size:1.6rem}
+  .container{padding:10px 10px 40px}
+}
+@media(max-width:420px){
+  .grid-4{grid-template-columns:1fr 1fr}
+  .grid-3{grid-template-columns:1fr 1fr}
+  .btn-row{grid-template-columns:1fr 1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>ระบบพยากรณ์การแพร่ระบาดของโรคในสวนมะม่วง</h1>
+  <p>ระบุต้นที่เป็นโรค · ดึงสภาพอากาศ · ดูความเสี่ยงล่วงหน้า 7–14 วัน</p>
+</div>
+
+<div class="steps" id="steps">
+  <div class="step active" id="s1"><span class="step-num">1</span>ข้อมูลสวน</div>
+  <div class="step-line" id="l1"></div>
+  <div class="step" id="s2"><span class="step-num">2</span>ต้นที่เป็นโรค</div>
+  <div class="step-line" id="l2"></div>
+  <div class="step" id="s3"><span class="step-num">3</span>อากาศและพยากรณ์</div>
+  <div class="step-line" id="l3"></div>
+  <div class="step" id="s4"><span class="step-num">4</span>ผลลัพธ์</div>
+</div>
+
+<div class="container">
+
+  <!-- ── Step 1: orchard settings ───────────────── -->
+  <div class="card" id="step1-card">
+    <div class="section-title">ขั้นตอนที่ 1 — ข้อมูลสวน</div>
+    <div class="grid-4" style="margin-bottom:12px">
+      <div><label>จำนวนแถว</label><input type="number" id="rows" value="10" min="1" max="60"></div>
+      <div><label>ต้นต่อแถว</label><input type="number" id="cols" value="10" min="1" max="60"></div>
+      <div><label>ระยะแถว (ม.)</label><input type="number" id="row_spacing" value="6" min="1" max="30" step="0.5"></div>
+      <div><label>ระยะต้น (ม.)</label><input type="number" id="tree_spacing" value="6" min="1" max="30" step="0.5"></div>
+    </div>
+    <div class="grid-3">
+      <div>
+        <label>พันธุ์มะม่วง</label>
+        <select id="variety">
+          <option value="NamDokMai">น้ำดอกไม้ (อ่อนแอต่อโรค)</option>
+          <option value="Irwin">Irwin (ทนปานกลาง)</option>
+          <option value="Keitt">Keitt (ทนทาน)</option>
+        </select>
+      </div>
+      <div>
+        <label>อายุเฉลี่ย (ปี): <span id="age-val">6</span></label>
+        <input type="range" id="age_years" min="1" max="25" value="6" oninput="document.getElementById('age-val').textContent=this.value">
+      </div>
+      <div>
+        <label>สุขภาพต้น: <span id="health-val">0.75</span></label>
+        <input type="range" id="health" min="0" max="1" step="0.05" value="0.75" oninput="document.getElementById('health-val').textContent=(+this.value).toFixed(2)">
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <button class="btn btn-primary" onclick="buildOrchard()">สร้างผังสวน →</button>
+    </div>
+  </div>
+
+  <!-- ── Main two-column area ───────────────────── -->
+  <div class="main-cols" id="main-area" style="display:none">
+
+    <!-- Left: map + tree selection -->
+    <div>
+      <div class="card">
+        <div class="section-title" id="map-title">ขั้นตอนที่ 2 — เลือกต้นที่เป็นโรค</div>
+        <p class="caption">จิ้มต้นบนแผนที่เพื่อเลือก/ยกเลิก  ·  ใช้ปุ่ม □ บน toolbar เพื่อลากครอบหลายต้น</p>
+        <div class="legend">
+          <span><span class="ldot" style="background:#B2CCBA"></span>ปกติ</span>
+          <span><span class="ldot" style="background:#C62828"></span>ติดเชื้อ</span>
+        </div>
+        <div id="map" style="width:100%;height:400px"></div>
+        <div style="margin-top:8px;font-size:.85rem;font-weight:600;color:#5A6672">
+          เลือกแล้ว <span id="infected-count">0</span> ต้น
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn" id="btn-undo" onclick="undo()" disabled>เลิกล่าสุด</button>
+          <button class="btn" onclick="selectTopRow()">แถวบนสุด</button>
+          <button class="btn" onclick="clearAll()">ล้างทั้งหมด</button>
+        </div>
+      </div>
+
+      <!-- Severity -->
+      <div class="card">
+        <div class="section-title">ความรุนแรงของโรคที่สังเกตได้</div>
+        <label>ระดับ: <strong id="sev-label">2 — เล็กน้อย</strong></label>
+        <input type="range" id="severity" min="1" max="5" step="1" value="2" oninput="updateSeverity(this.value)" style="margin:8px 0">
+        <div style="display:flex;justify-content:space-between;font-size:.72rem;color:#5A6672;margin-bottom:6px">
+          <span>เพิ่งพบ</span><span>เล็กน้อย</span><span>ปานกลาง</span><span>รุนแรง</span><span>วิกฤต</span>
+        </div>
+        <div class="sev-desc" id="sev-desc">แผลบนใบ 5–25% ของพื้นที่ใบ  ยอดอ่อนบางส่วนเหี่ยวหรือแห้ง  โรคอยู่แค่กิ่งล่าง</div>
+      </div>
+    </div>
+
+    <!-- Right: weather + predict -->
+    <div>
+      <div class="card">
+        <div class="section-title">ขั้นตอนที่ 3 — สภาพอากาศ</div>
+
+        <!-- Province selector -->
+        <div style="margin-bottom:10px">
+          <label>เลือกจังหวัด</label>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+            <select id="province-sel"></select>
+            <button class="btn" style="width:auto;padding:8px 14px" onclick="fetchWeather()">ดึงอากาศ</button>
+          </div>
+          <div id="wx-loading" class="hidden" style="font-size:.8rem;color:#5A6672;margin-top:4px">
+            <span class="spinner"></span>กำลังดึงข้อมูล...
+          </div>
+        </div>
+
+        <!-- Weather display -->
+        <div id="wx-display" class="hidden">
+          <div style="font-size:.75rem;color:#5A6672;margin-bottom:4px" id="wx-source"></div>
+          <div class="wx-grid">
+            <div class="wx-item"><div class="wx-label">อุณหภูมิ</div><div class="wx-val" id="wx-temp">—</div></div>
+            <div class="wx-item"><div class="wx-label">ความชื้น</div><div class="wx-val" id="wx-rh">—</div></div>
+            <div class="wx-item"><div class="wx-label">ฝน 24 ชม.</div><div class="wx-val" id="wx-rain">—</div></div>
+            <div class="wx-item"><div class="wx-label">ความเร็วลม</div><div class="wx-val" id="wx-wind">—</div></div>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Manual sliders -->
+        <div style="font-size:.8rem;font-weight:600;color:#5A6672;margin-bottom:10px">ปรับค่าอากาศเอง</div>
+        <div style="margin-bottom:10px">
+          <div class="range-row"><label style="margin:0;min-width:120px">ความชื้น (0–1)</label><input type="range" id="sl-hum" min="0" max="1" step="0.05" value="0.6" oninput="sliderChange()"><span class="range-val" id="v-hum">0.60</span></div>
+          <div class="range-row" style="margin-top:8px"><label style="margin:0;min-width:120px">ปริมาณฝน (0–3)</label><input type="range" id="sl-rain" min="0" max="3" step="0.1" value="1.0" oninput="sliderChange()"><span class="range-val" id="v-rain">1.0</span></div>
+          <div class="range-row" style="margin-top:8px"><label style="margin:0;min-width:120px">อุณหภูมิ (°C)</label><input type="range" id="sl-temp" min="10" max="40" step="0.5" value="28" oninput="sliderChange()"><span class="range-val" id="v-temp">28.0</span></div>
+          <div class="range-row" style="margin-top:8px"><label style="margin:0;min-width:120px">ความเร็วลม (0–2.5)</label><input type="range" id="sl-wind" min="0" max="2.5" step="0.1" value="1.0" oninput="sliderChange()"><span class="range-val" id="v-wind">1.0</span></div>
+        </div>
+        <div style="font-size:.82rem;color:#5A6672">
+          สถานการณ์อากาศ: <span class="sc-tag" id="scenario-tag">—</span>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Horizon -->
+        <div style="margin-bottom:12px">
+          <label>พยากรณ์ล่วงหน้า</label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:.88rem;cursor:pointer">
+              <input type="radio" name="horizon" value="7" checked> 7 วัน</label>
+            <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:.88rem;cursor:pointer">
+              <input type="radio" name="horizon" value="14"> 14 วัน</label>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="runPredict()" id="btn-predict">
+          พยากรณ์การแพร่ระบาด
+        </button>
+        <div id="predict-loading" class="hidden" style="text-align:center;padding:8px;font-size:.85rem;color:#5A6672">
+          <span class="spinner"></span>กำลังพยากรณ์...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Results ──────────────────────────── -->
+  <div id="result-area" class="hidden">
+    <div class="card">
+      <div class="section-title" id="result-title">ผลพยากรณ์</div>
+
+      <div class="main-cols">
+        <div>
+          <div class="legend">
+            <span><span class="ldot" style="background:#2E7D32"></span>ต่ำ</span>
+            <span><span class="ldot" style="background:#E65100"></span>ปานกลาง</span>
+            <span><span class="ldot" style="background:#C62828"></span>สูง</span>
+          </div>
+          <div id="result-map" style="width:100%;height:400px"></div>
+        </div>
+        <div>
+          <div class="stat-row">
+            <div class="stat-box"><div class="val" id="r-high" style="color:#C62828">0</div><div class="lbl">ต้นเสี่ยงสูง</div></div>
+            <div class="stat-box"><div class="val" id="r-mid" style="color:#E65100">0</div><div class="lbl">เสี่ยงปานกลาง</div></div>
+            <div class="stat-box"><div class="val" id="r-low" style="color:#2E7D32">0</div><div class="lbl">เสี่ยงต่ำ</div></div>
+          </div>
+          <div class="gauge-label">ความเสี่ยงเฉลี่ย</div>
+          <div id="gauge" style="height:180px"></div>
+          <div style="text-align:center;margin-top:4px">
+            <span class="risk-pill" id="risk-pill"></span>
+          </div>
+          <div class="rec" id="rec-box" style="margin-top:12px">
+            <div class="rec-title" id="rec-title"></div>
+            <ul class="rec-list" id="rec-list"></ul>
+          </div>
+          <button class="btn" style="margin-top:12px" onclick="downloadCSV()" id="btn-csv">ดาวน์โหลดผล CSV</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const RISK_HI='#C62828',RISK_MID='#E65100',RISK_LOW='#2E7D32';
+const G700='#2D5A40',G500='#4A8C64',G100='#EAF4EE';
+const SOFT='#5A6672',LINE='#D4E2DA',WH='#FFFFFF';
+
+let positions=[], gridIndex=[], N=0;
+let infectedSet=new Set(), infectedHistory=[];
+let lastResult=null;
+
+const SEV=[
+  {v:.2,label:'1 — เพิ่งพบ',   desc:'จุดสีน้ำตาลบนใบ < 5% ต้นยังดูแข็งแรงปกติ'},
+  {v:.4,label:'2 — เล็กน้อย',  desc:'แผลบนใบ 5–25%  ยอดอ่อนบางส่วนเหี่ยวหรือแห้ง  โรคอยู่แค่กิ่งล่าง'},
+  {v:.6,label:'3 — ปานกลาง',   desc:'แผลลามเกิน 25%  ยอดอ่อนแห้งหลายส่วน  ใบร่วงมากกว่าปกติ'},
+  {v:.8,label:'4 — รุนแรง',    desc:'ใบร่วงมาก  กิ่งแห้งตาย 30% ขึ้นไป  ผลเน่าหรือร่วงถ้ามี'},
+  {v:1.0,label:'5 — วิกฤต',    desc:'ต้นเสียหายมากกว่าครึ่ง  ยอดหลักแห้งตาย  อาจต้องตัดออก'},
+];
+
+// ── init provinces ────────────────────────────────
+fetch('/api/provinces').then(r=>r.json()).then(list=>{
+  const sel=document.getElementById('province-sel');
+  list.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
+  updateScenario();
+});
+
+// ── severity ─────────────────────────────────────
+function updateSeverity(v){
+  const s=SEV[v-1];
+  document.getElementById('sev-label').textContent=s.label;
+  document.getElementById('sev-desc').textContent=s.desc;
+}
+
+// ── sliders ───────────────────────────────────────
+function sliderChange(){
+  document.getElementById('v-hum').textContent= (+document.getElementById('sl-hum').value).toFixed(2);
+  document.getElementById('v-rain').textContent=(+document.getElementById('sl-rain').value).toFixed(1);
+  document.getElementById('v-temp').textContent=(+document.getElementById('sl-temp').value).toFixed(1);
+  document.getElementById('v-wind').textContent=(+document.getElementById('sl-wind').value).toFixed(1);
+  updateScenario();
+}
+
+const SCENARIOS={
+  HEAVY_RAIN:'ฝนตกหนัก / ชื้นจัด',DROUGHT:'แล้ง / อากาศแห้ง',
+  WINDY:'ลมแรง',HOT_HUMID:'ร้อนชื้น',COLD_DRY:'เย็นแห้ง',NORMAL:'ปกติ'
+};
+const SCENARIO_PROFILES={
+  HEAVY_RAIN:{h:.80,r:2.5,t:26,w:1.2},DROUGHT:{h:.35,r:.2,t:31,w:1.5},
+  WINDY:{h:.55,r:1,t:28,w:2},HOT_HUMID:{h:.75,r:1.2,t:32,w:.8},
+  COLD_DRY:{h:.30,r:.3,t:22,w:1.8},NORMAL:{h:.60,r:1,t:28,w:1},
+};
+function updateScenario(){
+  const hum=+document.getElementById('sl-hum').value;
+  const rain=+document.getElementById('sl-rain').value;
+  const temp=+document.getElementById('sl-temp').value;
+  const wind=+document.getElementById('sl-wind').value;
+  let best=null,bestD=Infinity;
+  for(const[k,p] of Object.entries(SCENARIO_PROFILES)){
+    const d=Math.hypot((hum-p.h),(rain/3-p.r/3),((temp-20)/15-(p.t-20)/15),(wind/2.5-p.w/2.5));
+    if(d<bestD){bestD=d;best=k;}
+  }
+  document.getElementById('scenario-tag').textContent=SCENARIOS[best]||best;
+}
+
+// ── build orchard ────────────────────────────────
+async function buildOrchard(){
+  const body={
+    rows:+document.getElementById('rows').value,
+    cols:+document.getElementById('cols').value,
+    row_spacing:+document.getElementById('row_spacing').value,
+    tree_spacing:+document.getElementById('tree_spacing').value,
+  };
+  const r=await fetch('/api/orchard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){showToast('สร้างผังไม่สำเร็จ');return;}
+  const d=await r.json();
+  positions=d.positions; gridIndex=d.grid_index; N=positions.length;
+  infectedSet=new Set(); infectedHistory=[];
+  document.getElementById('infected-count').textContent=0;
+  document.getElementById('main-area').style.display='';
+  document.getElementById('result-area').classList.add('hidden');
+  updateStep(2);
+  drawMap('map');
+  document.getElementById('main-area').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ── map drawing ───────────────────────────────────
+function mapColors(pred=null){
+  if(pred){
+    return positions.map((_,i)=>{
+      const v=pred[i];
+      return v>=.66?RISK_HI:v>=.33?RISK_MID:RISK_LOW;
+    });
+  }
+  return positions.map((_,i)=>infectedSet.has(i)?'#C62828':'#B2CCBA');
+}
+
+function drawMap(divId,pred=null){
+  const xs=positions.map(p=>p[0]),ys=positions.map(p=>p[1]);
+  const colors=mapColors(pred);
+  const texts=positions.map((_,i)=>{
+    const[r,c]=gridIndex[i];
+    const v=pred?`ความเสี่ยง ${(pred[i]*100).toFixed(0)}%`:(infectedSet.has(i)?'ติดเชื้อ':'ปกติ');
+    return `ต้น #${i}  แถว ${r+1}  ต้นที่ ${c+1}<br>${v}`;
+  });
+  const trace={type:'scatter',mode:'markers',x:xs,y:ys,
+    marker:{size:16,color:colors,line:{width:1.5,color:WH}},
+    text:texts,hoverinfo:'text',selected:{marker:{opacity:1}},unselected:{marker:{opacity:.6}}
+  };
+  const layout={
+    xaxis:{title:'แนวนอน (ม.)',gridcolor:'#ECEFF1'},
+    yaxis:{title:'แนวตั้ง (ม.)',scaleanchor:'x',scaleratio:1,gridcolor:'#ECEFF1'},
+    dragmode:'pan',clickmode:'event+select',
+    margin:{l:40,r:8,t:10,b:40},
+    paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'#fff',
+    font:{size:11,color:SOFT},height:400,
+  };
+  const config={responsive:true,displayModeBar:true,
+    modeBarButtonsToRemove:['lasso2d','autoScale2d','resetScale2d'],
+    displaylogo:false,
+  };
+  Plotly.newPlot(divId,[trace],layout,config);
+
+  if(divId==='map'){
+    document.getElementById('map').on('plotly_click',function(data){
+      const i=data.points[0].pointIndex;
+      infectedHistory.push(new Set(infectedSet));
+      if(infectedSet.has(i)) infectedSet.delete(i); else infectedSet.add(i);
+      document.getElementById('infected-count').textContent=infectedSet.size;
+      document.getElementById('btn-undo').disabled=false;
+      Plotly.restyle('map',{'marker.color':[mapColors()]});
+      updateStep(infectedSet.size>0?3:2);
+    });
+    document.getElementById('map').on('plotly_selected',function(data){
+      if(!data||!data.points||data.points.length<=1) return;
+      infectedHistory.push(new Set(infectedSet));
+      data.points.forEach(p=>infectedSet.add(p.pointIndex));
+      document.getElementById('infected-count').textContent=infectedSet.size;
+      document.getElementById('btn-undo').disabled=false;
+      Plotly.restyle('map',{'marker.color':[mapColors()]});
+      updateStep(3);
+    });
+  }
+}
+
+function undo(){
+  if(infectedHistory.length===0) return;
+  infectedSet=infectedHistory.pop();
+  document.getElementById('infected-count').textContent=infectedSet.size;
+  document.getElementById('btn-undo').disabled=infectedHistory.length===0;
+  Plotly.restyle('map',{'marker.color':[mapColors()]});
+}
+function clearAll(){
+  infectedHistory.push(new Set(infectedSet));
+  infectedSet=new Set();
+  document.getElementById('infected-count').textContent=0;
+  document.getElementById('btn-undo').disabled=false;
+  Plotly.restyle('map',{'marker.color':[mapColors()]});
+}
+function selectTopRow(){
+  infectedHistory.push(new Set(infectedSet));
+  gridIndex.forEach(([r],i)=>{if(r===0) infectedSet.add(i);});
+  document.getElementById('infected-count').textContent=infectedSet.size;
+  document.getElementById('btn-undo').disabled=false;
+  Plotly.restyle('map',{'marker.color':[mapColors()]});
+}
+
+// ── fetch weather ─────────────────────────────────
+async function fetchWeather(){
+  const prov=document.getElementById('province-sel').value;
+  document.getElementById('wx-loading').classList.remove('hidden');
+  document.getElementById('wx-display').classList.add('hidden');
+  const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({province:prov})});
+  document.getElementById('wx-loading').classList.add('hidden');
+  if(!r.ok){showToast('ดึงอากาศไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต');return;}
+  const d=await r.json();
+  document.getElementById('wx-display').classList.remove('hidden');
+  const raw=d.raw||{};
+  document.getElementById('wx-temp').textContent=raw.temp_c!=null?`${raw.temp_c.toFixed(0)} °C`:'—';
+  document.getElementById('wx-rh').textContent=raw.rh_pct!=null?`${raw.rh_pct.toFixed(0)}%`:'—';
+  document.getElementById('wx-rain').textContent=raw.precip_mm!=null?`${raw.precip_mm.toFixed(1)} มม.`:'—';
+  document.getElementById('wx-wind').textContent=raw.wind_kmh!=null?`${raw.wind_kmh.toFixed(0)} กม./ชม.`:'—';
+  const src=raw.source==='metar'
+    ?`<span class="badge badge-green">สถานีตรวจวัด</span> ${raw.source_label||''} · ${raw.obs_time||''}น.`
+    :`<span class="badge badge-orange">โมเดลพยากรณ์</span> Open-Meteo`;
+  document.getElementById('wx-source').innerHTML=src;
+  // fill sliders
+  if(d.humidity!=null){document.getElementById('sl-hum').value=d.humidity.toFixed(2);document.getElementById('v-hum').textContent=d.humidity.toFixed(2);}
+  if(d.rainfall!=null){document.getElementById('sl-rain').value=d.rainfall.toFixed(1);document.getElementById('v-rain').textContent=d.rainfall.toFixed(1);}
+  if(d.temperature!=null){document.getElementById('sl-temp').value=d.temperature.toFixed(1);document.getElementById('v-temp').textContent=d.temperature.toFixed(1);}
+  if(d.wind!=null){document.getElementById('sl-wind').value=d.wind.toFixed(1);document.getElementById('v-wind').textContent=d.wind.toFixed(1);}
+  updateScenario();
+  updateStep(3);
+}
+
+// ── predict ───────────────────────────────────────
+async function runPredict(){
+  if(infectedSet.size===0){showToast('กรุณาเลือกต้นที่เป็นโรคก่อน');return;}
+  const sevIdx=+document.getElementById('severity').value;
+  const body={
+    rows:+document.getElementById('rows').value,
+    cols:+document.getElementById('cols').value,
+    row_spacing:+document.getElementById('row_spacing').value,
+    tree_spacing:+document.getElementById('tree_spacing').value,
+    infected:[...infectedSet],
+    severity:SEV[sevIdx-1].v,
+    humidity:+document.getElementById('sl-hum').value,
+    rainfall:+document.getElementById('sl-rain').value,
+    temperature:+document.getElementById('sl-temp').value,
+    wind:+document.getElementById('sl-wind').value,
+    age_years:+document.getElementById('age_years').value,
+    health:+document.getElementById('health').value,
+    horizon:+document.querySelector('input[name=horizon]:checked').value,
+  };
+  document.getElementById('btn-predict').disabled=true;
+  document.getElementById('predict-loading').classList.remove('hidden');
+
+  const r=await fetch('/api/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('btn-predict').disabled=false;
+  document.getElementById('predict-loading').classList.add('hidden');
+  if(!r.ok){const e=await r.json();showToast(e.detail||'พยากรณ์ไม่สำเร็จ');return;}
+  const d=await r.json();
+  lastResult=d;
+  showResults(d);
+  updateStep(4);
+  document.getElementById('result-area').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function showResults(d){
+  document.getElementById('result-area').classList.remove('hidden');
+  document.getElementById('result-title').textContent=`ผลพยากรณ์ในอีก ${d.horizon} วัน`;
+  document.getElementById('r-high').textContent=d.high;
+  document.getElementById('r-mid').textContent=d.mid;
+  document.getElementById('r-low').textContent=d.low;
+
+  // gauge
+  const pct=+(d.avg_risk*100).toFixed(1);
+  const gColor=pct>=66?RISK_HI:pct>=33?RISK_MID:RISK_LOW;
+  Plotly.newPlot('gauge',[{type:'indicator',mode:'gauge+number',value:pct,
+    number:{suffix:'%',font:{size:28,color:'#1A1A1A'}},
+    gauge:{axis:{range:[0,100],tickwidth:1,tickcolor:'#CFD8DC',tickfont:{size:9,color:SOFT}},
+      bar:{color:'#1A1A1A',thickness:.12},borderwidth:0,
+      steps:[{range:[0,33],color:RISK_LOW},{range:[33,66],color:RISK_MID},{range:[66,100],color:RISK_HI}]},
+  }],[{height:180,margin:{l:10,r:10,t:2,b:2},paper_bgcolor:'rgba(0,0,0,0)',font:{size:10,color:SOFT}}],
+  {responsive:true,displayModeBar:false});
+
+  const lvl=pct>=66?'ความเสี่ยงสูง':pct>=33?'ความเสี่ยงปานกลาง':'ความเสี่ยงต่ำ';
+  const pill=document.getElementById('risk-pill');
+  pill.textContent=lvl; pill.style.background=gColor;
+
+  // recommendations
+  const rec=document.getElementById('rec-box');
+  const items=pct>=66?[
+    'ฉีดพ่นสารป้องกันกำจัดโรค (Mancozeb หรือ Carbendazim) ภายใน 48 ชั่วโมง',
+    'ตัดแต่งกิ่งที่ติดเชื้อออก เผาทำลายนอกพื้นที่',
+    'เพิ่มระยะห่างระหว่างต้นเพื่อลดความชื้นทรงพุ่ม',
+    'ติดตามต้นข้างเคียงทุกวัน',
+  ]:pct>=33?[
+    'เฝ้าระวังและตรวจสอบต้นที่มีความเสี่ยงทุก 2–3 วัน',
+    'เตรียมสารป้องกันกำจัดโรคพร้อมใช้งาน',
+    'ลดความชื้นในทรงพุ่มโดยตัดแต่งกิ่ง',
+  ]:[
+    'ติดตามสถานการณ์ต่อไป ไม่พบความเสี่ยงสูง',
+    'ตรวจสอบต้นที่ติดเชื้ออยู่อย่างสม่ำเสมอ',
+  ];
+  document.getElementById('rec-title').textContent=lvl;
+  rec.className='rec'+(pct<33?' ok':'');
+  document.getElementById('rec-list').innerHTML=items.map(i=>`<li>${i}</li>`).join('');
+
+  // result map
+  drawMap('result-map',d.risk);
+}
+
+// ── CSV download ──────────────────────────────────
+function downloadCSV(){
+  if(!lastResult) return;
+  const rows=lastResult.csv_rows;
+  const header='﻿'+'ต้น,แถว,ต้นที่,ความเสี่ยง_%,ระดับ\n';
+  const body=rows.map(r=>`${r['ต้น']},${r['แถว']},${r['ต้นที่']},${r['ความเสี่ยง_%']},${r['ระดับ']}`).join('\n');
+  const blob=new Blob([header+body],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`risk_${lastResult.scenario}_${lastResult.horizon}d.csv`;
+  a.click();
+}
+
+// ── steps indicator ───────────────────────────────
+function updateStep(n){
+  for(let i=1;i<=4;i++){
+    const s=document.getElementById(`s${i}`);
+    s.className='step'+(i<n?' done':i===n?' active':'');
+    if(i<4){
+      const l=document.getElementById(`l${i}`);
+      l.className='step-line'+(i<n?' done':'');
+    }
+  }
+}
+
+// ── toast notification ────────────────────────────
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// init
+updateSeverity(2);
+sliderChange();
+</script>
+</body>
+</html>
