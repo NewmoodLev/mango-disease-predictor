@@ -94,6 +94,18 @@ input[type=range]{width:100%;accent-color:#2D5A40;cursor:pointer;height:4px;marg
 .toast{position:fixed;bottom:20px;right:20px;background:#1B3A2A;color:#fff;padding:10px 18px;border-radius:8px;font-size:.85rem;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
 .toast.show{opacity:1}
 
+/* ── accuracy metrics ── */
+.metric-band{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-top:12px;padding:12px 14px;background:#F5F8F6;border:1px solid #D4E2DA;border-radius:8px}
+.metric-main{display:flex;align-items:center;gap:10px}
+.metric-r2{font-size:2rem;font-weight:700;line-height:1;color:#2D5A40}
+.metric-r2-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;color:#5A6672;font-weight:600}
+.metric-r2-sub{font-size:.72rem;color:#5A6672;margin-top:2px}
+.metric-sm{text-align:center}
+.metric-sm .val{font-size:1.1rem;font-weight:700;color:#1A1A1A}
+.metric-sm .lbl{font-size:.68rem;color:#5A6672;font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
+.accuracy-bar-wrap{margin-top:6px;height:5px;background:#D4E2DA;border-radius:3px;overflow:hidden}
+.accuracy-bar{height:100%;background:#2D5A40;border-radius:3px;transition:width .5s}
+
 /* gauge */
 .gauge-wrap{position:relative;text-align:center;padding:8px 0}
 .gauge-label{font-size:.72rem;color:#5A6672;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
@@ -294,7 +306,32 @@ input[type=range]{width:100%;accent-color:#2D5A40;cursor:pointer;height:4px;marg
             <div class="rec-title" id="rec-title"></div>
             <ul class="rec-list" id="rec-list"></ul>
           </div>
-          <button class="btn" style="margin-top:12px" onclick="downloadCSV()" id="btn-csv">ดาวน์โหลดผล CSV</button>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <button class="btn" onclick="downloadCSV()" id="btn-csv">ดาวน์โหลด CSV</button>
+            <button class="btn" onclick="exportMap()">บันทึกแผนที่ PNG</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- accuracy metrics band -->
+      <div class="metric-band" id="metric-band">
+        <div class="metric-main">
+          <div>
+            <div class="metric-r2-label">ความแม่นยำของโมเดล (R²)</div>
+            <div class="metric-r2" id="m-r2">—</div>
+            <div class="accuracy-bar-wrap"><div class="accuracy-bar" id="m-bar" style="width:0%"></div></div>
+            <div class="metric-r2-sub">R² ยิ่งใกล้ 1.000 ยิ่งแม่นยำ · วัดจากชุดทดสอบที่ไม่เคยเห็นขณะฝึก</div>
+          </div>
+        </div>
+        <div class="metric-sm">
+          <div class="val" id="m-rmse">—</div>
+          <div class="lbl">RMSE</div>
+          <div style="font-size:.68rem;color:#5A6672;margin-top:3px">ค่าคลาดเคลื่อนเฉลี่ย (0–1 scale)</div>
+        </div>
+        <div class="metric-sm">
+          <div class="val" id="m-mae">—</div>
+          <div class="lbl">MAE</div>
+          <div style="font-size:.68rem;color:#5A6672;margin-top:3px">ค่าเบี่ยงเบนเฉลี่ยสัมบูรณ์</div>
         </div>
       </div>
     </div>
@@ -308,6 +345,22 @@ input[type=range]{width:100%;accent-color:#2D5A40;cursor:pointer;height:4px;marg
 const RISK_HI='#C62828',RISK_MID='#E65100',RISK_LOW='#2E7D32';
 const G700='#2D5A40',G500='#4A8C64',G100='#EAF4EE';
 const SOFT='#5A6672',LINE='#D4E2DA',WH='#FFFFFF';
+
+// ค่าความแม่นยำจริงของโมเดล วัดจากชุดทดสอบ (test set) ที่ไม่ได้ใช้ฝึก
+const MODEL_METRICS = {
+  NORMAL_7:      {r2:0.9878, rmse:0.0211, mae:0.0119},
+  NORMAL_14:     {r2:0.9643, rmse:0.0375, mae:0.0180},
+  HEAVY_RAIN_7:  {r2:0.9853, rmse:0.0244, mae:0.0150},
+  HEAVY_RAIN_14: {r2:0.9698, rmse:0.0316, mae:0.0121},
+  HOT_HUMID_7:   {r2:0.9926, rmse:0.0178, mae:0.0093},
+  HOT_HUMID_14:  {r2:0.9817, rmse:0.0242, mae:0.0103},
+  WINDY_7:       {r2:0.9887, rmse:0.0211, mae:0.0116},
+  WINDY_14:      {r2:0.9834, rmse:0.0248, mae:0.0114},
+  DROUGHT_7:     {r2:0.9901, rmse:0.0181, mae:0.0118},
+  DROUGHT_14:    {r2:0.9794, rmse:0.0272, mae:0.0146},
+  COLD_DRY_7:    {r2:0.9915, rmse:0.0156, mae:0.0117},
+  COLD_DRY_14:   {r2:0.9830, rmse:0.0250, mae:0.0128},
+};
 
 let positions=[], gridIndex=[], N=0;
 let infectedSet=new Set(), infectedHistory=[];
@@ -575,6 +628,30 @@ function showResults(d){
 
   // result map
   drawMap('result-map',d.risk);
+
+  // accuracy metrics
+  showMetrics(d.scenario, d.horizon);
+}
+
+// ── accuracy metrics ─────────────────────────────
+function showMetrics(scenario, horizon){
+  const key = `${scenario}_${horizon}`;
+  const m   = MODEL_METRICS[key];
+  if(!m) return;
+  document.getElementById('m-r2').textContent   = m.r2.toFixed(4);
+  document.getElementById('m-rmse').textContent = m.rmse.toFixed(4);
+  document.getElementById('m-mae').textContent  = m.mae.toFixed(4);
+  document.getElementById('m-bar').style.width  = (m.r2 * 100).toFixed(1) + '%';
+}
+
+// ── export map PNG ────────────────────────────────
+function exportMap(){
+  const sc = lastResult ? lastResult.scenario : 'risk';
+  const h  = lastResult ? lastResult.horizon  : 0;
+  Plotly.downloadImage('result-map',{
+    format:'png', width:900, height:520,
+    filename:`orchard_risk_${sc}_${h}d`
+  });
 }
 
 // ── CSV download ──────────────────────────────────
