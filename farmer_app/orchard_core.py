@@ -131,39 +131,68 @@ def build_graph(positions: np.ndarray, spacing: float):
 # ──────────────────────────────────────────────────────────
 # 2. SYNTHESIZE 7-DAY FEATURE WINDOW
 # ──────────────────────────────────────────────────────────
-def synthesize_features(N: int,
+def synthesize_features(positions: np.ndarray,
+                        edge_index: "torch.Tensor",
+                        edge_weight: "torch.Tensor",
                         infected_idx,
                         severity: float,
+                        scenario: str,
+                        variety: str,
                         age_years: float,
                         health: float,
                         max_age_years: float = 25.0):
     """
-    Turn a simple "these trees look infected today, at this severity" report
-    into the (T=7, N, 4) window of [Infection, Delta, Age, Health].
+    สร้าง (T=7, N, 4) feature window โดยใช้ SEIR simulation
+    จำลองย้อนหลัง 7 วันที่ผ่านมา เพื่อให้ input ตรงกับ distribution
+    ที่ model เห็นตอน training (ต้นข้างเคียงมีค่า I เล็กน้อยจากการแพร่)
 
-    We assume each currently-infected tree grew along a gentle ramp over the
-    past week (so Delta is positive and informative), which is what the model
-    saw during training. Healthy trees stay at 0.
-
-    age_years / health are orchard-wide defaults the farmer sets once.
+    Features: [Infection, Delta, Age_norm, Health]
     """
-    infection = np.zeros((WINDOW_SIZE, N), dtype=np.float32)
+    N = len(positions)
 
-    if len(infected_idx) > 0:
-        # ramp from 60% -> 100% of reported severity across the 7 days
-        ramp = np.linspace(0.6, 1.0, WINDOW_SIZE, dtype=np.float32) * severity
-        for t in range(WINDOW_SIZE):
-            infection[t, list(infected_idx)] = ramp[t]
+    # สร้าง adjacency matrix (ไม่มี self-loop) สำหรับ SEIR
+    ei = edge_index.numpy()
+    ew = edge_weight.numpy()
+    mask = ei[0] != ei[1]
+    rows, cols, data = ei[0][mask], ei[1][mask], ew[mask]
+    adj = np.zeros((N, N), dtype=np.float32)
+    adj[rows, cols] = data
 
-    delta = np.zeros_like(infection)
-    delta[1:] = infection[1:] - infection[:-1]
+    sm       = _SPREAD_MULT.get(scenario, 1.0)
+    resist   = RESISTANCE_MAP.get(variety, 0.3)
+    eff_beta = _BETA_BASE * sm * (1.0 - resist)
 
-    age_norm = np.clip(age_years / max_age_years, 0.0, 1.0)
-    age_feat = np.full((WINDOW_SIZE, N), age_norm, dtype=np.float32)
-    health_feat = np.full((WINDOW_SIZE, N), float(health), dtype=np.float32)
+    # เริ่มจาก 7 วันก่อน: infected trees อยู่ที่ 60% ของ severity ปัจจุบัน
+    init_sev = float(severity) * 0.6
+    S = np.ones(N,  dtype=np.float32)
+    E = np.zeros(N, dtype=np.float32)
+    I = np.zeros(N, dtype=np.float32)
+    R = np.zeros(N, dtype=np.float32)
+    for idx in list(infected_idx):
+        I[idx] = init_sev
+        S[idx] = max(0.0, 1.0 - init_sev)
 
-    # stack -> (T, N, 4)
-    return np.stack([infection, delta, age_feat, health_feat], axis=-1)
+    # รัน SEIR ไปข้างหน้า WINDOW_SIZE ขั้น → ได้ประวัติ 7 วัน
+    I_history = np.zeros((WINDOW_SIZE, N), dtype=np.float32)
+    for t in range(WINDOW_SIZE):
+        I_history[t] = I.copy()
+        inf_force = adj @ I
+        new_e = np.minimum(eff_beta * S * inf_force, S)
+        new_i = _SIGMA * E
+        new_r = _GAMMA * I
+        S = np.clip(S - new_e,          0.0, 1.0)
+        E = np.clip(E + new_e - new_i,  0.0, 1.0)
+        I = np.clip(I + new_i - new_r,  0.0, 1.0)
+        R = np.clip(R + new_r,          0.0, 1.0)
+
+    delta = np.zeros_like(I_history)
+    delta[1:] = I_history[1:] - I_history[:-1]
+
+    age_norm    = np.clip(age_years / max_age_years, 0.0, 1.0)
+    age_feat    = np.full((WINDOW_SIZE, N), age_norm,       dtype=np.float32)
+    health_feat = np.full((WINDOW_SIZE, N), float(health),  dtype=np.float32)
+
+    return np.stack([I_history, delta, age_feat, health_feat], axis=-1)  # (T,N,4)
 
 
 # ──────────────────────────────────────────────────────────

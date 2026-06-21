@@ -104,19 +104,29 @@ async def run_predict(req: PredictReq):
             req.humidity, req.rainfall, req.temperature, req.wind
         )
 
-        ei, ew = core.build_graph(positions, spacing)
+        ei, ew   = core.build_graph(positions, spacing)
+        variety  = req.variety or "NamDokMai"
 
-        # ใช้ Spatial SEIR simulation โดยตรง (ตรงกับ methodology ของเปเปอร์)
-        risk = core.seir_forecast(
+        # สร้าง feature window จาก SEIR simulation (ตรง distribution ของ training)
+        feats = core.synthesize_features(
             positions   = positions,
             edge_index  = ei,
             edge_weight = ew,
-            infected    = req.infected,
+            infected_idx= req.infected,
             severity    = req.severity,
             scenario    = scenario,
-            horizon_days= req.horizon,
-            variety     = req.variety or "NamDokMai",
+            variety     = variety,
+            age_years   = 6,
+            health      = 0.75,
         )
+
+        # รัน ST-GNN model
+        horizons = core.list_available_horizons(scenario)
+        use_h    = req.horizon if req.horizon in horizons else (horizons[0] if horizons else None)
+        if use_h is None:
+            raise HTTPException(500, f"ไม่พบโมเดล — scenario={scenario} ROOT={core.ROOT}")
+
+        risk = core.predict(feats, ei, ew, scenario, use_h)
         risk = np.clip(risk, 0.0, 1.0)
 
         avg  = float(risk.mean())
@@ -141,7 +151,7 @@ async def run_predict(req: PredictReq):
             "low":         low,
             "scenario":    scenario,
             "scenario_th": core.SCENARIO_LABELS_TH.get(scenario, scenario),
-            "horizon":     req.horizon,
+            "horizon":     use_h,
             "csv_rows":    csv_rows,
         }
 
