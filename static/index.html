@@ -340,6 +340,7 @@ input[type=range]{width:100%;accent-color:#2D5A40;cursor:pointer;height:4px;marg
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="heatmap-export" style="position:absolute;left:-9999px;top:-9999px;width:960px;height:760px"></div>
 
 <script>
 const RISK_HI='#C62828',RISK_MID='#E65100',RISK_LOW='#2E7D32';
@@ -644,14 +645,103 @@ function showMetrics(scenario, horizon){
   document.getElementById('m-bar').style.width  = (m.r2 * 100).toFixed(1) + '%';
 }
 
-// ── export map PNG ────────────────────────────────
+// ── export paper-style heatmap ────────────────────
 function exportMap(){
-  const sc = lastResult ? lastResult.scenario : 'risk';
-  const h  = lastResult ? lastResult.horizon  : 0;
-  Plotly.downloadImage('result-map',{
-    format:'png', width:900, height:520,
-    filename:`orchard_risk_${sc}_${h}d`
-  });
+  if(!lastResult || positions.length === 0){ showToast('กรุณาพยากรณ์ก่อน'); return; }
+
+  const risk       = lastResult.risk;
+  const N          = risk.length;
+  const rowSp      = +document.getElementById('row_spacing').value;
+  const treeSp     = +document.getElementById('tree_spacing').value;
+  const spacing    = Math.min(rowSp, treeSp);
+  const thresh     = spacing * Math.SQRT2 * 1.05;   // diagonal neighbor + tiny margin
+  const sc         = lastResult.scenario;
+  const h          = lastResult.horizon;
+  const scTh       = lastResult.scenario_th || sc;
+  const variety    = document.getElementById('variety').options[document.getElementById('variety').selectedIndex].text.split(' ')[0];
+
+  // ── build edge traces ────────────────────────────
+  const ex=[], ey=[];
+  for(let i=0;i<N;i++){
+    for(let j=i+1;j<N;j++){
+      const dx=positions[i][0]-positions[j][0];
+      const dy=positions[i][1]-positions[j][1];
+      if(Math.sqrt(dx*dx+dy*dy)<=thresh){
+        ex.push(positions[i][0], positions[j][0], null);
+        ey.push(positions[i][1], positions[j][1], null);
+      }
+    }
+  }
+
+  // ── hotspot: top 10% ────────────────────────────
+  const sorted  = [...risk].sort((a,b)=>a-b);
+  const hotTh   = sorted[Math.floor(N*0.90)];
+  const hotIdx  = risk.map((r,i)=>r>=hotTh?i:-1).filter(i=>i>=0);
+
+  // ── traces (same style as paper) ─────────────────
+  const tEdge = {
+    type:'scatter', mode:'lines', x:ex, y:ey,
+    line:{color:'lightgray',width:0.6}, hoverinfo:'skip', showlegend:false
+  };
+  const tNode = {
+    type:'scatter', mode:'markers',
+    x: positions.map(p=>p[0]), y: positions.map(p=>p[1]),
+    marker:{
+      color: risk,
+      colorscale: [
+        [0,'#1a9850'],[0.25,'#91cf60'],[0.5,'#ffffbf'],
+        [0.75,'#fc8d59'],[1,'#d73027']
+      ],
+      reversescale: false,
+      size: 9, line:{color:'#333',width:0.5},
+      colorbar:{
+        title:{text:'Disease Risk',side:'right'},
+        thickness:14, len:0.75,
+        tickformat:'.2f', tickfont:{size:10}
+      },
+      cmin:0, cmax:1
+    },
+    text: risk.map((r,i)=>{
+      const gi=gridIndex[i];
+      return `แถว ${gi[0]+1} ต้น ${gi[1]+1}<br>ความเสี่ยง: ${(r*100).toFixed(1)}%`;
+    }),
+    hovertemplate:'%{text}<extra></extra>',
+    name:'ต้นมะม่วง'
+  };
+  const tHot = {
+    type:'scatter', mode:'markers',
+    x: hotIdx.map(i=>positions[i][0]),
+    y: hotIdx.map(i=>positions[i][1]),
+    marker:{symbol:'x',size:11,color:'red',line:{color:'darkred',width:2}},
+    text: hotIdx.map(i=>{
+      const gi=gridIndex[i];
+      return `แถว ${gi[0]+1} ต้น ${gi[1]+1}<br>ความเสี่ยงสูง: ${(risk[i]*100).toFixed(1)}%`;
+    }),
+    hovertemplate:'%{text}<extra></extra>',
+    name:'พื้นที่เสี่ยงสูง (top 10%)'
+  };
+
+  const layout = {
+    title:{
+      text:`Orchard Disease Risk Heatmap<br><sup>${scTh}  ·  Forecast +${h} days  ·  ${variety}</sup>`,
+      font:{size:16, family:'Arial, sans-serif'}, x:0.5
+    },
+    xaxis:{title:'X Position (m)', zeroline:false, gridcolor:'#eee'},
+    yaxis:{title:'Y Position (m)', zeroline:false, gridcolor:'#eee'},
+    paper_bgcolor:'white', plot_bgcolor:'white',
+    legend:{x:1.12, y:1, font:{size:11}},
+    margin:{l:65, r:160, t:90, b:65},
+    width:960, height:760
+  };
+
+  // render in hidden div, then export
+  const div = document.getElementById('heatmap-export');
+  Plotly.newPlot(div,[tEdge,tNode,tHot],layout,{staticPlot:true,responsive:false})
+    .then(()=> Plotly.downloadImage(div,{
+      format:'png', width:960, height:760,
+      filename:`Orchard_Disease_Risk_Heatmap_${sc}_${h}d`
+    }))
+    .then(()=> Plotly.purge(div));
 }
 
 // ── CSV download ──────────────────────────────────
