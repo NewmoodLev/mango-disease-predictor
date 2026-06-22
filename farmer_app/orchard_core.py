@@ -741,6 +741,55 @@ def fetch_live_weather(lat: float, lon: float, timeout: float = 10.0):
     }
 
 
+def fetch_forecast_weather(lat: float, lon: float, horizon_days: int,
+                           timeout: float = 10.0):
+    """
+    ดึงค่าเฉลี่ยสภาพอากาศในช่วง horizon_days วันข้างหน้า จาก Open-Meteo hourly
+    ใช้สำหรับ match_weather_to_scenario ให้ตรงกับช่วงเวลาที่พยากรณ์จริง
+    แทนการใช้อากาศ ณ วันนี้ ซึ่งอาจไม่ตรงกับสภาพตลอด 7–14 วันข้างหน้า
+    คืน None ถ้าดึงไม่สำเร็จหรือไม่มีอินเทอร์เน็ต
+    """
+    import requests
+    days = min(int(horizon_days), 16)
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        "&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m"
+        f"&forecast_days={days}&timezone=auto"
+    )
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        h = r.json().get("hourly", {})
+        n = days * 24
+        temps = [v for v in h.get("temperature_2m",       [])[:n] if v is not None]
+        rhs   = [v for v in h.get("relative_humidity_2m", [])[:n] if v is not None]
+        precs = [v for v in h.get("precipitation",        [])[:n] if v is not None]
+        winds = [v for v in h.get("wind_speed_10m",       [])[:n] if v is not None]
+        if not temps:
+            return None
+        temp_c   = float(np.mean(temps))
+        rh_pct   = float(np.mean(rhs))       if rhs   else 60.0
+        rain_day = float(sum(precs) / days)   if precs else 0.0   # mm/วัน เฉลี่ย
+        wind_kmh = float(np.mean(winds))      if winds  else 5.0
+    except Exception:
+        return None
+
+    return {
+        "humidity":    float(np.clip(rh_pct / 100.0,   0.0, 1.0)),
+        "rainfall":    float(np.clip(rain_day / 15.0,  0.0, 3.0)),
+        "temperature": temp_c,
+        "wind":        float(np.clip(wind_kmh / 15.0,  0.0, 2.5)),
+        "raw": {
+            "temp_c":        temp_c,
+            "rh_pct":        rh_pct,
+            "precip_mm":     rain_day,
+            "wind_kmh":      wind_kmh,
+            "forecast_days": days,
+        },
+    }
+
+
 # ──────────────────────────────────────────────────────────
 # 5. SAVE / LOAD ORCHARD CONFIG
 # ──────────────────────────────────────────────────────────

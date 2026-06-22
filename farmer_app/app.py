@@ -656,6 +656,8 @@ def boot():
         "severity":           0.4,
         "weather_note":       "",
         "wx_data":            None,
+        "wx_lat":             None,
+        "wx_lon":             None,
         "geo_results":        [],
         "last_pred":          None,
         "_pending_wx_prov":   None,
@@ -675,7 +677,7 @@ def _snap(v, step):
     return round(round(v / step) * step, 10)
 
 
-def save_wx(w: dict, place: str):
+def save_wx(w: dict, place: str, lat: float = None, lon: float = None):
     """บันทึกค่าอากาศที่ดึงได้ลง session_state — ปัดค่าให้ตรง slider step."""
     hum  = max(0.0,  min(1.0,  _snap(w["humidity"],    0.05)))
     rain = max(0.0,  min(3.0,  _snap(w["rainfall"],    0.10)))
@@ -704,6 +706,9 @@ def save_wx(w: dict, place: str):
         "src_label": src_label,
         "dist_km":   dist_km,
     }
+    if lat is not None:
+        st.session_state.wx_lat = lat
+        st.session_state.wx_lon = lon
 
 
 def _queue_prov_fetch():
@@ -969,12 +974,13 @@ with outer:
         _prov_q = st.session_state.get("_pending_wx_prov")
         if _prov_q:
             st.session_state._pending_wx_prov = None
+            _prov_lat, _prov_lon = core.THAI_LOCATIONS[_prov_q]
             with st.spinner(f"ดึงข้อมูลอากาศ {_prov_q}..."):
-                _w = core.fetch_live_weather(*core.THAI_LOCATIONS[_prov_q])
+                _w = core.fetch_live_weather(_prov_lat, _prov_lon)
             if _w is None:
                 st.warning(f"ดึงอากาศ {_prov_q} ไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต")
             else:
-                save_wx(_w, _prov_q)
+                save_wx(_w, _prov_q, lat=_prov_lat, lon=_prov_lon)
                 st.rerun()
 
         # ── เลือกจังหวัด (auto-fill + ปุ่มรีเฟรช) ─────────────────────
@@ -1021,7 +1027,7 @@ with outer:
                     if w is None:
                         st.warning("ดึงอากาศไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต")
                     else:
-                        save_wx(w, place["name"])
+                        save_wx(w, place["name"], lat=place["lat"], lon=place["lon"])
                         st.rerun()
 
         if st.session_state.wx_data:
@@ -1072,128 +1078,149 @@ if run:
         st.warning("กรุณาเลือกต้นที่เป็นโรคอย่างน้อย 1 ต้น")
     else:
         try:
-            horizons = core.list_available_horizons(scenario)
-            use_h = horizon if horizon in horizons else (horizons[0] if horizons else None)
-            if use_h is None:
-                st.error(f"ไม่พบโมเดลสำหรับสถานการณ์ {scenario}")
-            else:
-                if use_h != horizon:
-                    st.info(f"ไม่มีโมเดล {horizon} วัน — ใช้ {use_h} วันแทน")
+            use_h = horizon
 
-                ei, ew = core.build_graph(positions, spacing)
-                feats  = core.synthesize_features(
-                    N, st.session_state.infected, severity, age_years, health,
+            # ดึงอากาศพยากรณ์ช่วง horizon วันแทนอากาศปัจจุบัน
+            # เพื่อให้ scenario ที่เลือกตรงกับสภาพอากาศจริงตลอดช่วงที่พยากรณ์
+            fcast_scenario = scenario
+            fcast_label    = sc_label
+            _wx_lat = st.session_state.get("wx_lat")
+            _wx_lon = st.session_state.get("wx_lon")
+            if _wx_lat is not None:
+                _fw = core.fetch_forecast_weather(_wx_lat, _wx_lon, use_h)
+                if _fw:
+                    fcast_scenario = core.match_weather_to_scenario(
+                        _fw["humidity"], _fw["rainfall"],
+                        _fw["temperature"], _fw["wind"],
+                    )
+                    fcast_label = core.SCENARIO_LABELS_TH.get(fcast_scenario, fcast_scenario)
+
+            ei, ew = core.build_graph(positions, spacing)
+            with st.spinner("กำลังพยากรณ์..."):
+                pred = core.seir_forecast(
+                    positions, ei, ew,
+                    st.session_state.infected,
+                    severity,
+                    fcast_scenario,
+                    use_h,
+                    variety=variety,
                 )
-                with st.spinner("กำลังพยากรณ์..."):
-                    pred = core.predict(feats, ei, ew, scenario, use_h)
 
-                st.session_state.last_pred = pred.tolist()
-                scroll_result()
+            st.session_state.last_pred = pred.tolist()
+            scroll_result()
 
-                high = int((pred >= 0.66).sum())
-                mid  = int(((pred >= 0.33) & (pred < 0.66)).sum())
-                low  = int((pred < 0.33).sum())
-                avg  = float(pred.mean())
-                lvl, rc = risk_of(avg)
+            high = int((pred >= 0.66).sum())
+            mid  = int(((pred >= 0.33) & (pred < 0.66)).sum())
+            low  = int((pred < 0.33).sum())
+            avg  = float(pred.mean())
+            lvl, rc = risk_of(avg)
 
-                st.markdown("---")
-                st.markdown(f"### ผลพยากรณ์ในอีก {use_h} วัน")
+            st.markdown("---")
+            _sc_tag = (
+                f'<span class="sc-tag">{fcast_label} · พยากรณ์ {use_h} วัน</span>'
+                if fcast_scenario != scenario else
+                f'<span class="sc-tag">{fcast_label}</span>'
+            )
+            st.markdown(
+                f'<h3 style="margin:0 0 12px">ผลพยากรณ์ในอีก {use_h} วัน  {_sc_tag}</h3>',
+                unsafe_allow_html=True,
+            )
 
-                mc1, mc2 = st.columns([1.6, 1.0], gap="large")
+            mc1, mc2 = st.columns([1.6, 1.0], gap="large")
 
-                with mc1:
-                    legend()
-                    orchard_map(
-                        positions, grid_index, pred,
-                        f"แผนที่ความเสี่ยง  +{use_h} วัน",
-                        key="rmap", arrow=True,
-                    )
+            with mc1:
+                legend()
+                orchard_map(
+                    positions, grid_index, pred,
+                    f"แผนที่ความเสี่ยง  +{use_h} วัน",
+                    key="rmap", arrow=True,
+                )
 
-                with mc2:
-                    stat_row(high, mid, low)
+            with mc2:
+                stat_row(high, mid, low)
 
-                    st.markdown(
-                        f'<div style="font-size:.75rem;font-weight:600;'
-                        f'color:{SOFT};text-align:center;margin-bottom:2px;'
-                        f'text-transform:uppercase;letter-spacing:.4px">'
-                        f'ความเสี่ยงเฉลี่ย</div>',
-                        unsafe_allow_html=True,
-                    )
-                    gauge(avg, key="g1")
-                    st.markdown(
-                        f'<div style="text-align:center;margin-top:4px">'
-                        f'<span class="risk-pill" style="background:{rc}">{lvl}</span></div>',
-                        unsafe_allow_html=True,
-                    )
-
-                    # Export
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    buf = io.StringIO()
-                    wr  = csv.DictWriter(
-                        buf,
-                        fieldnames=["ต้น", "แถว", "ต้นที่", "ความเสี่ยง_%", "ระดับ"],
-                    )
-                    wr.writeheader()
-                    for i in range(N):
-                        wr.writerow({
-                            "ต้น": i,
-                            "แถว": grid_index[i][0] + 1,
-                            "ต้นที่": grid_index[i][1] + 1,
-                            "ความเสี่ยง_%": f"{pred[i]*100:.1f}",
-                            "ระดับ": (
-                                "สูง" if pred[i] >= 0.66
-                                else "ปานกลาง" if pred[i] >= 0.33
-                                else "ต่ำ"
-                            ),
-                        })
-                    st.download_button(
-                        "ดาวน์โหลดผล CSV",
-                        buf.getvalue().encode("utf-8-sig"),
-                        file_name=f"risk_{scenario.lower()}_{use_h}d.csv",
-                        mime="text/csv",
-                        width='stretch',
-                    )
-
-                # Animation
                 st.markdown(
-                    f'<div class="sh" style="margin-top:18px">'
-                    f'การลุกลามของโรคแบบจำลองทีละวัน</div>',
+                    f'<div style="font-size:.75rem;font-weight:600;'
+                    f'color:{SOFT};text-align:center;margin-bottom:2px;'
+                    f'text-transform:uppercase;letter-spacing:.4px">'
+                    f'ความเสี่ยงเฉลี่ย</div>',
                     unsafe_allow_html=True,
                 )
-                sv = np.zeros(N)
-                for i in st.session_state.infected:
-                    sv[i] = severity
-                animated_map(positions, sv, pred, use_h, key="anim")
-                st.caption("กด เล่น หรือลากสไลเดอร์เพื่อดูแนวโน้มทีละวัน")
+                gauge(avg, key="g1")
+                st.markdown(
+                    f'<div style="text-align:center;margin-top:4px">'
+                    f'<span class="risk-pill" style="background:{rc}">{lvl}</span></div>',
+                    unsafe_allow_html=True,
+                )
 
-                # คำแนะนำ
-                if high > 0:
-                    top_n = np.argsort(pred)[::-1][:min(5, high)]
-                    items = "".join(
-                        f'<li>ต้น #{i}  แถว {grid_index[i][0]+1}  '
-                        f'ต้นที่ {grid_index[i][1]+1}  —  {pred[i]*100:.0f}%</li>'
-                        for i in top_n
-                    )
-                    st.markdown(
-                        f'<div class="rec">'
-                        f'<div class="rec-title">ต้นที่ควรจัดการก่อน '
-                        f'({min(5,high)} ต้นเสี่ยงสูงสุด)</div>'
-                        f'<ul class="rec-list">{items}</ul>'
-                        f'<div class="rec-note">พิจารณาตัดแต่งกิ่งและพ่นสารป้องกันโรค '
-                        f'เฝ้าระวังต้นข้างเคียงในทิศทางลมตะวันออกเฉียงเหนือ</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f'<div class="rec ok">'
-                        f'<div class="rec-title">ความเสี่ยงโดยรวมยังต่ำ</div>'
-                        f'<ul class="rec-list">'
-                        f'<li>เฝ้าระวังตามปกติและรักษาสุขอนามัยในสวน</li>'
-                        f'<li>ตรวจซ้ำในอีก 7 วัน</li>'
-                        f'</ul></div>',
-                        unsafe_allow_html=True,
-                    )
+                # Export
+                st.markdown("<br>", unsafe_allow_html=True)
+                buf = io.StringIO()
+                wr  = csv.DictWriter(
+                    buf,
+                    fieldnames=["ต้น", "แถว", "ต้นที่", "ความเสี่ยง_%", "ระดับ"],
+                )
+                wr.writeheader()
+                for i in range(N):
+                    wr.writerow({
+                        "ต้น": i,
+                        "แถว": grid_index[i][0] + 1,
+                        "ต้นที่": grid_index[i][1] + 1,
+                        "ความเสี่ยง_%": f"{pred[i]*100:.1f}",
+                        "ระดับ": (
+                            "สูง" if pred[i] >= 0.66
+                            else "ปานกลาง" if pred[i] >= 0.33
+                            else "ต่ำ"
+                        ),
+                    })
+                st.download_button(
+                    "ดาวน์โหลดผล CSV",
+                    buf.getvalue().encode("utf-8-sig"),
+                    file_name=f"risk_{fcast_scenario.lower()}_{use_h}d.csv",
+                    mime="text/csv",
+                    width='stretch',
+                )
+
+            # Animation
+            st.markdown(
+                f'<div class="sh" style="margin-top:18px">'
+                f'การลุกลามของโรคแบบจำลองทีละวัน</div>',
+                unsafe_allow_html=True,
+            )
+            sv = np.zeros(N)
+            for i in st.session_state.infected:
+                sv[i] = severity
+            animated_map(positions, sv, pred, use_h, key="anim")
+            st.caption("กด เล่น หรือลากสไลเดอร์เพื่อดูแนวโน้มทีละวัน")
+
+            # คำแนะนำ
+            if high > 0:
+                top_n = np.argsort(pred)[::-1][:min(5, high)]
+                items = "".join(
+                    f'<li>ต้น #{i}  แถว {grid_index[i][0]+1}  '
+                    f'ต้นที่ {grid_index[i][1]+1}  —  {pred[i]*100:.0f}%</li>'
+                    for i in top_n
+                )
+                st.markdown(
+                    f'<div class="rec">'
+                    f'<div class="rec-title">ต้นที่ควรจัดการก่อน '
+                    f'({min(5,high)} ต้นเสี่ยงสูงสุด)</div>'
+                    f'<ul class="rec-list">{items}</ul>'
+                    f'<div class="rec-note">พิจารณาตัดแต่งกิ่งและพ่นสารป้องกันโรค '
+                    f'เฝ้าระวังต้นข้างเคียงในทิศทางลมตะวันออกเฉียงเหนือ</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="rec ok">'
+                    f'<div class="rec-title">ความเสี่ยงโดยรวมยังต่ำ</div>'
+                    f'<ul class="rec-list">'
+                    f'<li>เฝ้าระวังตามปกติและรักษาสุขอนามัยในสวน</li>'
+                    f'<li>ตรวจซ้ำในอีก 7 วัน</li>'
+                    f'</ul></div>',
+                    unsafe_allow_html=True,
+                )
 
         except Exception as e:
             st.exception(e)
