@@ -87,6 +87,8 @@ class PredictReq(BaseModel):
     wind: float = 1.0
     horizon: int = 7
     variety: Optional[str] = "NamDokMai"
+    age_years: float = 10.0
+    health: float = 0.80
 
 
 @app.post("/api/predict")
@@ -116,8 +118,8 @@ async def run_predict(req: PredictReq):
             severity    = req.severity,
             scenario    = scenario,
             variety     = variety,
-            age_years   = 6,
-            health      = 0.75,
+            age_years   = req.age_years,
+            health      = req.health,
         )
 
         # รัน ST-GNN model
