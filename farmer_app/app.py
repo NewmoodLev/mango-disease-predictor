@@ -1115,6 +1115,8 @@ if run:
                     st.stop()
                 pred = core.predict(feats, ei, ew, fcast_scenario, use_h)
                 pred = np.clip(pred, 0.0, 1.0)
+                for _i in st.session_state.infected:
+                    pred[_i] = max(pred[_i], float(severity))
 
             st.session_state.last_pred = pred.tolist()
             scroll_result()
