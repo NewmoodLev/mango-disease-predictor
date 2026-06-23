@@ -735,7 +735,7 @@ with outer:
     # ── step 1 accordion ──────────────────────────────────────────────────
     # defaults (ใช้ถ้า expander ยุบอยู่ หรือโหมด CSV)
     rows = 10; cols_n = 10; row_spacing = 6.0; tree_spacing = 6.0
-    age_years = 6; health = 0.75
+    age_years = 10; health = 0.80
 
     with st.expander("ขั้นตอนที่ 1  —  ข้อมูลสวน", expanded=not _has_t):
 
@@ -1097,14 +1097,24 @@ if run:
 
             ei, ew = core.build_graph(positions, spacing)
             with st.spinner("กำลังพยากรณ์..."):
-                pred = core.seir_forecast(
-                    positions, ei, ew,
-                    st.session_state.infected,
-                    severity,
-                    fcast_scenario,
-                    use_h,
-                    variety=variety,
+                feats = core.synthesize_features(
+                    positions    = positions,
+                    edge_index   = ei,
+                    edge_weight  = ew,
+                    infected_idx = st.session_state.infected,
+                    severity     = severity,
+                    scenario     = fcast_scenario,
+                    variety      = variety,
+                    age_years    = age_years,
+                    health       = health,
                 )
+                horizons = core.list_available_horizons(fcast_scenario)
+                use_h = use_h if use_h in horizons else (horizons[0] if horizons else None)
+                if use_h is None:
+                    st.error(f"ไม่พบโมเดลสำหรับ scenario: {fcast_scenario}")
+                    st.stop()
+                pred = core.predict(feats, ei, ew, fcast_scenario, use_h)
+                pred = np.clip(pred, 0.0, 1.0)
 
             st.session_state.last_pred = pred.tolist()
             scroll_result()
