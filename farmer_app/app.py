@@ -735,7 +735,7 @@ with outer:
     # ── step 1 accordion ──────────────────────────────────────────────────
     # defaults (ใช้ถ้า expander ยุบอยู่ หรือโหมด CSV)
     rows = 10; cols_n = 10; row_spacing = 6.0; tree_spacing = 6.0
-    age_years = 10; health = 0.80
+    age_years = 6; health = 0.75
 
     with st.expander("ขั้นตอนที่ 1  —  ข้อมูลสวน", expanded=not _has_t):
 
